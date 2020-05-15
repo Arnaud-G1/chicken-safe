@@ -15,7 +15,7 @@
 
 // Use this lib as it has easy way to handle date time component set
 
-// Sunset sunrise
+// close_time open_time
 #include <Dusk2Dawn.h>
 
 // Menu
@@ -25,6 +25,9 @@
 
 // EEprom to store settings
 #include <EEPROM.h>
+
+// Store strings in progmem
+#include <avr/pgmspace.h>
 
 // IOs
 
@@ -83,9 +86,9 @@ typedef struct {
 
 typedef struct {
   byte disp_state;
-  long int state_time;
-  long int last_update;
-  long int last_duskdawn_update;
+  unsigned long  state_time;
+  unsigned long  last_update;
+  unsigned long  last_duskdawn_update;
   // Buttons
   struct  {
     btn_t up;
@@ -94,12 +97,12 @@ typedef struct {
   } buttons;
   // Time info
   DateTime currentTime;
-  int sunset;   // Minutes since midnight
-  int sunrise;  // Minutes since midnight
+  int close_time;   // Minutes since midnight
+  int open_time;  // Minutes since midnight
   byte day_state; // Keep state (day or night)
   // Motor
   byte motor_state;
-  long int motor_start_time;
+  unsigned long motor_start_time;
   // Door
   byte gate;
   int cfg_gate_open_delay;
@@ -110,7 +113,6 @@ typedef struct {
  *  Globals 
  */
 
-
 RTC_IC rtc;
 
 // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins) at address 0x3C
@@ -119,6 +121,7 @@ U8X8_SSD1306_128X64_NONAME_HW_I2C disp(/* reset=*/ U8X8_PIN_NONE);
 //Dusk2Dawn localTimeData(GEO_LAT,GEO_LONG, GEO_TZ);
 
 state_t State;
+
 
 /* ========================================================================
  * Menu handler
@@ -173,36 +176,46 @@ void on_set_geo_tz_selected(NumericMenuItem* p_menu_component);
 MenuRenderer menu_renderer;
 
 MenuSystem ms(menu_renderer);
-MenuItem mm_mi1("1. Open gate", &on_open_selected);
-MenuItem mm_mi2("2. Close gate", &on_close_selected);
-Menu mu1("3. Date & Time");
+MenuItem mm_mi1("1.Open door", &on_open_selected);
+MenuItem mm_mi2("2.Close door", &on_close_selected);
+
+Menu mu1("3.Date & Time");
+
 NumericMenuItem mu1_dt_d("Day   ",    &on_set_day_selected,     0,    1,   31, 1, format_int);
 NumericMenuItem mu1_dt_m("Month ",    &on_set_month_selected,   1,    1,   12, 1, format_int);
 NumericMenuItem mu1_dt_y("Year  ",    &on_set_year_selected, 2020, 1979, 2050, 1, format_int);
 NumericMenuItem mu1_dt_h("Hour  ",    &on_set_hour_selected,    0,    1,   23, 1, format_int);
 NumericMenuItem mu1_dt_mn("Minute",   &on_set_minute_selected,  0,    1,   59, 1, format_int);
-Menu mu2("4. Gate");
-NumericMenuItem mu2_open_del("Open delay",    &on_set_open_delay_selected,    60,    -120,   120, 10, format_int);
+
+Menu mu2("4.Door params"); // Gate
+NumericMenuItem mu2_open_del( "Open delay ",     &on_set_open_delay_selected,    60,    -120,   120, 10, format_int);
 NumericMenuItem mu2_close_del("Close delay",   &on_set_close_delay_selected,  -30,    -120,   120, 10, format_int);
-Menu mu3("5. Position");
-NumericMenuItem mu3_geo_long("Long.",    &on_set_geo_long_selected,    GEO_LONG,    -180,   180, 0.5, format_geo_long);
-NumericMenuItem mu3_geo_lat("Lat.",   &on_set_geo_lat_selected,         GEO_LAT,     -180,   180, 0.5, format_geo_lat);
-NumericMenuItem mu3_geo_tz("Time z.",   &on_set_geo_tz_selected,         GEO_TZ,      -12,   +12,  0.5, format_float);
-BackMenuItem mu_back("<--- Back",&on_back_selected, &ms);
+
+Menu mu3("5.Position"); // Position
+NumericMenuItem mu3_geo_long("Long.  ",    &on_set_geo_long_selected,    GEO_LONG,    -180,   180, 0.5, format_geo_long);
+NumericMenuItem mu3_geo_lat( "Lat.   ",   &on_set_geo_lat_selected,       GEO_LAT,     -180,   180, 0.5, format_geo_lat);
+NumericMenuItem mu3_geo_tz(  "Time z.",   &on_set_geo_tz_selected,         GEO_TZ,      -12,   +12,  0.5, format_float);
+
+BackMenuItem mu_back("<= Back",&on_back_selected, &ms);
 
 //
 void menu_ack(int val) {
     disp.clear();
     disp.setCursor(0,1);
-    disp.print(String("Done! ")+ val);
+    disp.print(F("Done! "));
+    disp.print(val);
     delay(1000); // so we can look the result on the LCD
+    // Leave menu
+    State.disp_state = UI_STATE_DEFAULT;
 }
 
 void menu_ack_0() {
     disp.clear();
     disp.setCursor(0,1);
-    disp.print("Done! ");
+    disp.print(F("Done! "));
     delay(1000); // so we can look the result on the LCD
+    // Leave menu
+    State.disp_state = UI_STATE_DEFAULT;
 }
 
 // Menu callback function
@@ -280,30 +293,35 @@ void on_set_open_delay_selected(NumericMenuItem* p_menu_component) {
    int val = p_menu_component->get_value();
    EEPROM.put(EE_ADDR_OPEN_DEL, val);
    State.cfg_gate_open_delay = val;
+   update_sun_times();
    menu_ack(val);
 }
 void on_set_close_delay_selected(NumericMenuItem* p_menu_component) {
   int val = p_menu_component->get_value();
   EEPROM.put(EE_ADDR_CLOSE_DEL, val);
   State.cfg_gate_close_delay = val;
+  update_sun_times();
   menu_ack(val);
 }
 
 void on_set_geo_long_selected(NumericMenuItem* p_menu_component) {
    float val = p_menu_component->get_value();
    EEPROM.put(EE_ADDR_LONG, val);
+   update_sun_times();
    menu_ack_0();
 }
 void on_set_geo_lat_selected(NumericMenuItem* p_menu_component) {
   float val = p_menu_component->get_value();
   EEPROM.put(EE_ADDR_LAT, val);
+  update_sun_times();
    menu_ack_0();
 }
 
 void on_set_geo_tz_selected(NumericMenuItem* p_menu_component) {
   float val = p_menu_component->get_value();
   EEPROM.put(EE_ADDR_TZ, val);
-   menu_ack_0();
+  update_sun_times();
+  menu_ack_0();
 }
 
 // Setup the menu structure
@@ -328,7 +346,6 @@ void menu_setup() {
   mu3.add_item(&mu3_geo_tz);
   mu3.add_item(&mu_back);
 }
-
 
 
 /* ========================================================================
@@ -394,7 +411,6 @@ void setup()
   rtc.begin();
 
   if (!rtc.isrunning()) {
-    Serial.println("RTC is NOT running!");
     // following line sets the RTC to the date & time this sketch was compiled
     rtc.adjust(DateTime(__DATE__, __TIME__));
   }
@@ -412,6 +428,9 @@ void setup()
   btn_setup(&State.buttons.down, BTN_DOWN);
   btn_setup(&State.buttons.enter, BTN_ENTER);
 
+  // Config setup
+  config_setup();
+
   // Motor
   motor_setup();
   
@@ -420,10 +439,7 @@ void setup()
   // Menu
   menu_setup();
 
-  // Config setup
-  config_setup();
-
-  Serial.println("Setup done!"); 
+  Serial.println(F("Setup done!")); 
 }
 
 /* ========================================================================
@@ -485,7 +501,7 @@ int btn_read(btn_t * btn) {
 void ui_handler() {
     if ((millis() - State.state_time) > 10000) {
         // Leave menu state
-        if (State.disp_state == UI_STATE_MENU) {\
+        if (State.disp_state == UI_STATE_MENU) {
           ms.reset();
           disp.clear();
           State.disp_state = UI_STATE_DEFAULT;
@@ -495,7 +511,7 @@ void ui_handler() {
     if ((millis() - State.last_update) > 1000) {
       State.last_update = millis();
 
-      updateState(0); // No dusk dawn update
+      //updateState(0); // No dusk dawn update
       if (State.disp_state == UI_STATE_DEFAULT) {
         // Display info
         display_info();
@@ -511,7 +527,6 @@ void ui_handler() {
           if (State.disp_state == UI_STATE_MENU) {
               // Display menu if still in menu state
               ms.display();
-              Serial.println(String("Menu") + State.disp_state);
           }
       } 
       else if (btn_read(&State.buttons.up)) {
@@ -535,7 +550,6 @@ void ui_handler() {
           State.disp_state = UI_STATE_MENU;
       } 
     }
-
 }
 
 /* ========================================================================
@@ -550,38 +564,37 @@ void display_time(void) {
 
   disp.setCursor(0, 0);
   //disp.clearLine(0);
-  disp.print(String("")+rtc.now().format("DD/MM/YY  hh:mm "));
+  char buf[] = "DD/MM/YY  hh:mm";
+  State.currentTime.format(buf);
+  disp.drawString(0, 0, buf);  
 }
 
 // Display full info
 
 void display_info(void) {
   // graphic commands to redraw the complete screen should be placed here  
-  //u8g.setFont(u8g_font_unifont);
-  //disp.setFont(u8x8_font_chroma48medium8_r);
   char buf[] = "DD/MM/YY  hh:mm";
-
   State.currentTime.format(buf);
   disp.draw1x2String(0, 0, buf);  
 
   disp.setCursor(0, 2);
   disp.clearLine(2);
   disp.setCursor(0, 3);
-  // Line 3
+  // Line 3: Open time
   char timeStr[6];
-  Dusk2Dawn::min2str(timeStr, State.sunrise);
+  Dusk2Dawn::min2str(timeStr, State.open_time);
   disp.print(String("Open:  ")+timeStr); // 06:58
-  // Line 4
+  // Line 4: Close time
   disp.setCursor(0, 4);
-  Dusk2Dawn::min2str(timeStr, State.sunset);
+  Dusk2Dawn::min2str(timeStr, State.close_time);
   disp.print(String("Close: ")+timeStr); // 06:58
   
   // Line 5
   disp.setCursor(0, 5);
   if (State.gate == GATE_OPEN) {
-    disp.print("Door open   ");
+    disp.print(F("Door open   "));
   } else {
-    disp.print("Door closed ");
+    disp.print(F("Door closed "));
   }
   
 }
@@ -599,12 +612,13 @@ void gate_move(byte dir) {
   
   State.motor_start_time = millis();
   // IO control
-  digitalWrite(MOTOR_A,dir ^ 0x1);
+  digitalWrite(MOTOR_A,!dir);
   digitalWrite(MOTOR_B,dir);
   digitalWrite(MOTOR_EN,1);
   State.motor_state = dir;
 
-  Serial.println(String("Gate move") + dir);
+  Serial.print(F("Gate move"));
+  Serial.println(dir);
   
 }
 
@@ -614,7 +628,7 @@ void gate_stop() {
   State.disp_state = UI_STATE_DEFAULT;
   State.motor_state = MOTOR_OFF;
   // IO control
-  Serial.println("Gate stop");
+  Serial.println(F("Gate stop"));
   digitalWrite(MOTOR_A,0);
   digitalWrite(MOTOR_B,0);
   digitalWrite(MOTOR_EN,0); // Saves power
@@ -626,11 +640,11 @@ bool is_night() {
 
   int time_min = State.currentTime.hour() * 60 + State.currentTime.minute(); // Time expressed in minutes
 
-  if (time_min < (State.sunrise + State.cfg_gate_close_delay)) 
-    return 1; // Night, before sunrise
-  if (time_min < (State.sunset + State.cfg_gate_open_delay)) 
+  if (time_min < (State.open_time + State.cfg_gate_close_delay)) 
+    return 1; // Night, before open_time
+  if (time_min < (State.close_time + State.cfg_gate_open_delay)) 
     return 0; // Day
-  return 1; // Night, after sunset
+  return 1; // Night, after close_time
 }
 
 void action_handler() {
@@ -659,14 +673,18 @@ void action_handler() {
        State.day_state = DAY;
        if (State.gate == GATE_CLOSE) gate_move(GATE_OPEN);
     }
-
-    
-
 }
 
+/*
+ * Get close_time and open_time time based on geo settings
+ */
+
+Dusk2Dawn * localTimeData;
+
 void update_sun_times() {
-    Dusk2Dawn * localTimeData;
-      
+
+    const int DAY_IN_MINUTES = 24*60;
+    
     float geo_long;
     float geo_lat;
     float geo_tz;
@@ -675,10 +693,10 @@ void update_sun_times() {
     EEPROM.get(EE_ADDR_LAT, geo_lat);
     EEPROM.get(EE_ADDR_TZ, geo_tz);
 
-    localTimeData = new Dusk2Dawn(geo_lat,geo_long, geo_tz);
+    Dusk2Dawn localTimeData(geo_lat,geo_long, geo_tz);
 
-    State.sunrise     = localTimeData->sunrise(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false);
-    State.sunset      = localTimeData->sunset(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false);
+    State.open_time     = (localTimeData.sunrise(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false) +  State.cfg_gate_open_delay) % DAY_IN_MINUTES;
+    State.close_time    = (localTimeData.sunset(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false)  + State.cfg_gate_close_delay) % DAY_IN_MINUTES;
 
     State.last_duskdawn_update = millis();
 }
@@ -693,8 +711,10 @@ void updateState(int init_state) {
 
         State.day_state = is_night();  
     }
-  
-    State.currentTime = rtc.now();
+
+    // Copy to temp var to avoid leakage if assigned directly...
+    DateTime dt = rtc.now();
+    State.currentTime = DateTime(dt.year(), dt.month(), dt.day(),dt.hour(),dt.minute(), dt.second());
     
     // Update every 12 hours or when init is set
     if (init_state || ((millis() - State.last_duskdawn_update) > 12*60*60*1000)) {
@@ -709,10 +729,7 @@ void updateState(int init_state) {
 
 void loop()
 {
-
   action_handler();
 
   ui_handler();
-
-  //delay(600); // for debug only
 }

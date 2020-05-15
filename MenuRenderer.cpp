@@ -4,6 +4,7 @@
 
 #include <U8g2lib.h>
 
+
 /*
  * Display functions
  */
@@ -49,7 +50,6 @@ void MenuRenderer::render(Menu const& menu) const {
       }
       disp_idx++;
     }
-    
 }
 
 void MenuRenderer::render_menu_item(MenuItem const& menu_item) const {
@@ -65,5 +65,5 @@ void MenuRenderer::render_numeric_menu_item(NumericMenuItem const& menu_item) co
 }
 
 void MenuRenderer::render_menu(Menu const& menu) const {
-    disp.print(menu.get_name());
+    disp.print(menu.get_name()); 
 }

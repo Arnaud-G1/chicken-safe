@@ -4,7 +4,7 @@
 
 #include <MenuSystem.h>
 
-#define MENU_LINES 5
+#define MENU_LINES 3
 
 #define MENU_START_LINE 2
 
