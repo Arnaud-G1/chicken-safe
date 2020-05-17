@@ -4,6 +4,10 @@
 //Library version:1.1
 #include <Wire.h> 
 
+// Low power
+//https://github.com/rocketscream/Low-Power/
+#include <LowPower.h>
+
 // OLED
 // https://github.com/olikraus/u8g2
 //#include "U8glib.h"
@@ -38,6 +42,15 @@
 #define MOTOR_A   5
 #define MOTOR_B   6
 #define MOTOR_EN  7
+
+#define RTC_INT   2
+
+#define VBAT      A2
+
+// Vbat divier with 100+470 ohm
+#define VBAT_DIVIDER 5.7 
+
+// Other params
 
 #define DEBOUNCE_DELAY 50
 
@@ -88,7 +101,7 @@ typedef struct {
   byte disp_state;
   unsigned long  state_time;
   unsigned long  last_update;
-  unsigned long  last_duskdawn_update;
+  unsigned long  idle_time; // for sleep entry
   // Buttons
   struct  {
     btn_t up;
@@ -97,9 +110,10 @@ typedef struct {
   } buttons;
   // Time info
   DateTime currentTime;
-  int close_time;   // Minutes since midnight
-  int open_time;  // Minutes since midnight
-  byte day_state; // Keep state (day or night)
+  int close_time;    // Minutes since midnight
+  int open_time;     // Minutes since midnight
+  byte day_state;    // Keep state (day or night)
+  byte last_duskdawn_day;  // Day when duskdawn was computed (once per day is enough)
   // Motor
   byte motor_state;
   unsigned long motor_start_time;
@@ -107,6 +121,8 @@ typedef struct {
   byte gate;
   int cfg_gate_open_delay;
   int cfg_gate_close_delay;
+  // Battery
+  float vbat;
 } state_t;
 
 /*
@@ -347,6 +363,63 @@ void menu_setup() {
   mu3.add_item(&mu_back);
 }
 
+/* ========================================================================
+ * Low power
+\* ======================================================================== */
+
+bool sleep;
+
+// RTC event
+
+void low_power_rtc_event() {
+  if (sleep) { 
+    Serial.println(F("Wakeup!"));
+    //update_state(1);
+  }
+  detachInterrupt(digitalPinToInterrupt(RTC_INT));
+}
+
+// Pin change interrupt
+
+ISR(PCINT0_vect){
+    Serial.println(F("Button wakeup"));
+    PCICR &= ~(0b00000001); // Crear interrupt enable
+
+    State.idle_time = millis(); // W
+}    
+
+
+
+void low_power_setup() {
+
+  pinMode(RTC_INT, INPUT_PULLUP);
+  // Setup SQW
+  rtc.write(0x07,0x10); // Enable SQW at 1 Hz
+  
+  //https://www.teachmemicro.com/arduino-interrupt-tutorial/#Pin_Change_Interrupt
+  
+  PCMSK0 |= 0b0000111;    // Enable PCINT0 for pins 8,9,10 (PCINT0,1,2)
+  
+  State.idle_time = millis();  
+
+  sleep = false;
+}
+
+
+void low_power_sleep_req() {
+  Serial.println(F("Deep sleep!"));
+  sleep = true;
+
+  // Enable INT0
+  attachInterrupt(digitalPinToInterrupt(RTC_INT), low_power_rtc_event, LOW);
+
+  // Enable PCINT0 for button change detection
+  PCICR |= 0b00000001;    // turn on port b (PCIE0 =1)
+
+  // Enter power down state with ADC and BOD module disabled.
+  // Wake up when wake up pin is low.
+  LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF); 
+}
 
 /* ========================================================================
  * Setup
@@ -407,6 +480,9 @@ void setup()
   
   Wire.begin();
 
+  // ADC
+  analogReference(INTERNAL);
+
   // RTC
   rtc.begin();
 
@@ -415,11 +491,15 @@ void setup()
     rtc.adjust(DateTime(__DATE__, __TIME__));
   }
   //rtc.adjust(DateTime(__DATE__, __TIME__));
+  
 
   // Display
   disp.begin();
   disp.setPowerSave(0);
   disp.setFont(u8x8_font_chroma48medium8_r);
+  //disp.setFont(u8x8_font_pressstart2p_r);
+  //disp.setFont(u8x8_font_5x8_r);
+  
   disp.clear();
   //disp.setFont(u8x8_font_8x13B_1x2_f);
 
@@ -434,10 +514,13 @@ void setup()
   // Motor
   motor_setup();
   
-  updateState(1);
+  update_state(1);
 
   // Menu
   menu_setup();
+
+  // Low power
+  low_power_setup();
 
   Serial.println(F("Setup done!")); 
 }
@@ -493,6 +576,8 @@ int btn_read(btn_t * btn) {
       if (btn_value == 1 && btn->state == 0) {
           btn->state = 1;
           ret_val = 1; 
+          // 
+          State.idle_time = millis();
       }
     }
     return ret_val;
@@ -511,7 +596,7 @@ void ui_handler() {
     if ((millis() - State.last_update) > 1000) {
       State.last_update = millis();
 
-      //updateState(0); // No dusk dawn update
+      update_state(0); // No dusk dawn update
       if (State.disp_state == UI_STATE_DEFAULT) {
         // Display info
         display_info();
@@ -519,7 +604,7 @@ void ui_handler() {
     }
 
     if (State.disp_state == UI_STATE_MENU) {
-      display_time(); // Only display time on 1st line
+      display_time(false); // Only display time on 1st line
       // Menu state
       if (btn_read(&State.buttons.enter)) {
           State.state_time = millis();
@@ -557,25 +642,21 @@ void ui_handler() {
 \* ======================================================================== */
 
 
-void display_time(void) {
-  // graphic commands to redraw the complete screen should be placed here  
-  //u8g.setFont(u8g_font_unifont);
-  //disp.setFont(u8x8_font_chroma48medium8_r);
-
-  disp.setCursor(0, 0);
+void display_time(bool large) {
   //disp.clearLine(0);
   char buf[] = "DD/MM/YY  hh:mm";
   State.currentTime.format(buf);
-  disp.drawString(0, 0, buf);  
+  if (large)
+    disp.draw1x2String(0, 0, buf);  
+  else
+    disp.drawString(0, 0, buf);  
 }
 
 // Display full info
 
 void display_info(void) {
   // graphic commands to redraw the complete screen should be placed here  
-  char buf[] = "DD/MM/YY  hh:mm";
-  State.currentTime.format(buf);
-  disp.draw1x2String(0, 0, buf);  
+  display_time(true);
 
   disp.setCursor(0, 2);
   disp.clearLine(2);
@@ -611,6 +692,7 @@ void display_info(void) {
 void gate_move(byte dir) {
   
   State.motor_start_time = millis();
+  State.idle_time = millis(); // Prevent deep sleep entry
   // IO control
   digitalWrite(MOTOR_A,!dir);
   digitalWrite(MOTOR_B,dir);
@@ -698,10 +780,10 @@ void update_sun_times() {
     State.open_time     = (localTimeData.sunrise(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false) +  State.cfg_gate_open_delay) % DAY_IN_MINUTES;
     State.close_time    = (localTimeData.sunset(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false)  + State.cfg_gate_close_delay) % DAY_IN_MINUTES;
 
-    State.last_duskdawn_update = millis();
+    State.last_duskdawn_day = State.currentTime.day();
 }
 
-void updateState(int init_state) {
+void update_state(int init_state) {
     
 
     if (init_state) {
@@ -710,15 +792,31 @@ void updateState(int init_state) {
         State.last_update = 0;
 
         State.day_state = is_night();  
+        State.idle_time = millis();
     }
 
     // Copy to temp var to avoid leakage if assigned directly...
     DateTime dt = rtc.now();
     State.currentTime = DateTime(dt.year(), dt.month(), dt.day(),dt.hour(),dt.minute(), dt.second());
     
-    // Update every 12 hours or when init is set
-    if (init_state || ((millis() - State.last_duskdawn_update) > 12*60*60*1000)) {
+    // Update every day or when init is set
+    if (init_state || (dt.day() != State.last_duskdawn_day)) {
         update_sun_times();
+    }
+
+    // Check battery level
+    int val = analogRead(VBAT);  // read the input pin
+              // debug value
+
+    // With a divider 100K+1M the ration Vadc/Vin = 1/11
+    float vadc = (float)val/1024*1.1;
+    State.vbat = vadc * VBAT_DIVIDER; 
+    Serial.println(State.vbat);
+
+    // Low power handler
+    if ((millis() - State.idle_time) > 60000 ) {
+      // 1 minute
+      low_power_sleep_req();
     }
 }
 
@@ -732,4 +830,5 @@ void loop()
   action_handler();
 
   ui_handler();
+
 }
