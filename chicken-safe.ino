@@ -47,6 +47,8 @@
 
 #define VBAT      A2
 
+#define LED       LED_BUILTIN
+
 // Vbat divier with 100+470 ohm
 #define VBAT_DIVIDER 5.7 
 
@@ -74,6 +76,7 @@
 #define UI_STATE_DEFAULT 0
 #define UI_STATE_MENU    1
 #define UI_STATE_ACTION  2
+#define UI_STATE_DEEPSLEEP  8
 
 #define NIGHT 1
 #define DAY   0
@@ -367,27 +370,25 @@ void menu_setup() {
  * Low power
 \* ======================================================================== */
 
-bool sleep;
+bool rtc_tick;
 
 // RTC event
 
-void low_power_rtc_event() {
-  if (sleep) { 
-    Serial.println(F("Wakeup!"));
-    //update_state(1);
-  }
-  detachInterrupt(digitalPinToInterrupt(RTC_INT));
-}
 
-// Pin change interrupt
+// Button Pin change interrupt
 
 ISR(PCINT0_vect){
-    Serial.println(F("Button wakeup"));
-    PCICR &= ~(0b00000001); // Crear interrupt enable
+    PCICR &= ~(0b00000001); 
+        // Crear interrupt enable to avoid interrupt from buttons when awake
 
-    State.idle_time = millis(); // W
+    State.idle_time = millis(); // Reset idle counter, wake for another period
 }    
 
+// RTC Event
+
+ISR(PCINT2_vect){
+    rtc_tick = true;
+} 
 
 
 void low_power_setup() {
@@ -398,23 +399,23 @@ void low_power_setup() {
   
   //https://www.teachmemicro.com/arduino-interrupt-tutorial/#Pin_Change_Interrupt
   
-  PCMSK0 |= 0b0000111;    // Enable PCINT0 for pins 8,9,10 (PCINT0,1,2)
+  PCMSK0 |= 0b0000111;    // Enable PCINT0 for pins 8,9,10
+  PCMSK2 |= 0b0000100;    // Enable PCINT2 for pins 2
+
+  PCICR |= 0b00000100;    // turn on port d (PCIE2 =1)
   
   State.idle_time = millis();  
 
-  sleep = false;
+  rtc_tick = false;
 }
 
 
 void low_power_sleep_req() {
-  Serial.println(F("Deep sleep!"));
-  sleep = true;
-
-  // Enable INT0
-  attachInterrupt(digitalPinToInterrupt(RTC_INT), low_power_rtc_event, LOW);
+  
+  digitalWrite(LED,LOW);
 
   // Enable PCINT0 for button change detection
-  PCICR |= 0b00000001;    // turn on port b (PCIE0 =1)
+  PCICR |= 0b00000001;    // turn on port b & d (PCIE0, PCIE2 =1)
 
   // Enter power down state with ADC and BOD module disabled.
   // Wake up when wake up pin is low.
@@ -497,12 +498,12 @@ void setup()
   disp.begin();
   disp.setPowerSave(0);
   disp.setFont(u8x8_font_chroma48medium8_r);
-  //disp.setFont(u8x8_font_pressstart2p_r);
-  //disp.setFont(u8x8_font_5x8_r);
   
   disp.clear();
-  //disp.setFont(u8x8_font_8x13B_1x2_f);
 
+  // LED
+  pinMode(LED, OUTPUT);
+  
   // Buttons
   btn_setup(&State.buttons.up, BTN_UP);
   btn_setup(&State.buttons.down, BTN_DOWN);
@@ -584,6 +585,17 @@ int btn_read(btn_t * btn) {
 }
 
 void ui_handler() {
+    if (State.disp_state == UI_STATE_DEEPSLEEP) {
+      disp.setPowerSave(0);
+      disp.clear();
+      // Clear buttons state to detect new press after wakeup
+      btn_read(&State.buttons.enter);
+      btn_read(&State.buttons.up);
+      btn_read(&State.buttons.down);
+      
+      State.disp_state = UI_STATE_DEFAULT;
+    }
+
     if ((millis() - State.state_time) > 10000) {
         // Leave menu state
         if (State.disp_state == UI_STATE_MENU) {
@@ -593,8 +605,12 @@ void ui_handler() {
         }
 
     }
-    if ((millis() - State.last_update) > 1000) {
+
+    // Regular system update event
+    //if ((millis() - State.last_update) > 1000) {
+    if (rtc_tick) {
       State.last_update = millis();
+      rtc_tick = false;
 
       update_state(0); // No dusk dawn update
       if (State.disp_state == UI_STATE_DEFAULT) {
@@ -677,7 +693,8 @@ void display_info(void) {
   } else {
     disp.print(F("Door closed "));
   }
-  
+  disp.setCursor(0, 7);
+  disp.print(String("VBat: ")+State.vbat); 
 }
 
 /* ========================================================================
@@ -811,13 +828,6 @@ void update_state(int init_state) {
     // With a divider 100K+1M the ration Vadc/Vin = 1/11
     float vadc = (float)val/1024*1.1;
     State.vbat = vadc * VBAT_DIVIDER; 
-    Serial.println(State.vbat);
-
-    // Low power handler
-    if ((millis() - State.idle_time) > 60000 ) {
-      // 1 minute
-      low_power_sleep_req();
-    }
 }
 
 
@@ -827,8 +837,18 @@ void update_state(int init_state) {
 
 void loop()
 {
-  action_handler();
 
   ui_handler();
-
+  
+  action_handler();  
+  
+  // Low power handler
+  if ((millis() - State.idle_time) > 60000 ) {
+    // 1 minute
+    disp.setPowerSave(1);
+    State.disp_state = UI_STATE_DEEPSLEEP;
+    low_power_sleep_req();
+  }
+  // Monitors when system active (debug)
+  digitalWrite(LED,HIGH);
 }
