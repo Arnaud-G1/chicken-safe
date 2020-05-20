@@ -24,8 +24,7 @@
 
 // Menu
 // https://github.com/jonblack/arduino-menusystem
-#include <MenuSystem.h>
-#include "MenuRenderer.h"
+#include "Menu.h"
 
 // EEprom to store settings
 #include <EEPROM.h>
@@ -33,61 +32,7 @@
 // Store strings in progmem
 #include <avr/pgmspace.h>
 
-// IOs
-
-#define BTN_ENTER 8
-#define BTN_UP    9
-#define BTN_DOWN 10
-
-#define MOTOR_A   5
-#define MOTOR_B   6
-#define MOTOR_EN  7
-
-#define RTC_INT   2
-
-#define VBAT      A2
-
-#define LED       LED_BUILTIN
-
-// Vbat divier with 100+470 ohm
-#define VBAT_DIVIDER 5.7 
-
-// Other params
-
-#define DEBOUNCE_DELAY 50
-
-#define RTC_IC DS1307
-
-#define GEO_LAT 50.59833
-#define GEO_LONG 4.32848
-#define GEO_TZ +2
-
-#define MOTOR_TIMEOUT    20 /* seconds */
-
-// State definitions
-
-#define MOTOR_OFF   0
-#define MOTOR_OPEN  1
-#define MOTOR_CLOSE 2
-
-#define GATE_OPEN  1
-#define GATE_CLOSE 2
-
-#define UI_STATE_DEFAULT 0
-#define UI_STATE_MENU    1
-#define UI_STATE_ACTION  2
-#define UI_STATE_DEEPSLEEP  8
-
-#define NIGHT 1
-#define DAY   0
-
-#define EE_ADDR_CFG       0
-#define EE_ADDR_OPEN_DEL  2
-#define EE_ADDR_CLOSE_DEL 4
-#define EE_ADDR_GATE      6
-#define EE_ADDR_LONG     10 // Float : 4 bytes
-#define EE_ADDR_LAT      14 // Float : 4 bytes
-#define EE_ADDR_TZ       18 // Float : 4 bytes
+#include "System.h"
 /*
  * Type definitions
  */
@@ -97,7 +42,6 @@ typedef struct {
   byte id;
   byte state;  
 } btn_t;
-
 
 
 typedef struct {
@@ -146,98 +90,21 @@ state_t State;
  * Menu handler
 \* ======================================================================== */
 
-// writes the (int) value of a float into a char buffer.
-const String format_int(const float value) {
-    return String((int) value);
-}
 
-const String format_float(const float value) {
-    return String(value);
-}
-
-const String format_geo_long(const float value) {
-    if (value > 0)    
-        return String((float) value)+String(" E");
-    else
-        return String((float) value)+String(" W");
-}
-
-const String format_geo_lat(const float value) {
-    if (value > 0)    
-        return String((float) value)+String(" N");
-    else
-        return String((float) value)+String(" S");
-}
-
-// Forward declarations
-
-void on_open_selected(MenuComponent* p_menu_component);
-void on_close_selected(MenuComponent* p_menu_component);
-
-void on_back_selected(MenuComponent* p_menu_component) {
-}
-
-void on_set_day_selected(NumericMenuItem* p_menu_component);
-void on_set_month_selected(NumericMenuItem* p_menu_component);
-void on_set_year_selected(NumericMenuItem* p_menu_component);
-void on_set_hour_selected(NumericMenuItem* p_menu_component);
-void on_set_minute_selected(NumericMenuItem* p_menu_component);
-
-void on_set_open_delay_selected(NumericMenuItem* p_menu_component);
-void on_set_close_delay_selected(NumericMenuItem* p_menu_component);
-
-void on_set_geo_lat_selected(NumericMenuItem* p_menu_component);
-void on_set_geo_long_selected(NumericMenuItem* p_menu_component);
-void on_set_geo_tz_selected(NumericMenuItem* p_menu_component);
-
-// Menu variables
-
-MenuRenderer menu_renderer;
-
-MenuSystem ms(menu_renderer);
-MenuItem mm_mi1("1.Open door", &on_open_selected);
-MenuItem mm_mi2("2.Close door", &on_close_selected);
-
-Menu mu1("3.Date & Time");
-
-NumericMenuItem mu1_dt_d("Day   ",    &on_set_day_selected,     0,    1,   31, 1, format_int);
-NumericMenuItem mu1_dt_m("Month ",    &on_set_month_selected,   1,    1,   12, 1, format_int);
-NumericMenuItem mu1_dt_y("Year  ",    &on_set_year_selected, 2020, 1979, 2050, 1, format_int);
-NumericMenuItem mu1_dt_h("Hour  ",    &on_set_hour_selected,    0,    1,   23, 1, format_int);
-NumericMenuItem mu1_dt_mn("Minute",   &on_set_minute_selected,  0,    1,   59, 1, format_int);
-
-Menu mu2("4.Door params"); // Gate
-NumericMenuItem mu2_open_del( "Open delay ",     &on_set_open_delay_selected,    60,    -120,   120, 10, format_int);
-NumericMenuItem mu2_close_del("Close delay",   &on_set_close_delay_selected,  -30,    -120,   120, 10, format_int);
-
-Menu mu3("5.Position"); // Position
-NumericMenuItem mu3_geo_long("Long.  ",    &on_set_geo_long_selected,    GEO_LONG,    -180,   180, 0.5, format_geo_long);
-NumericMenuItem mu3_geo_lat( "Lat.   ",   &on_set_geo_lat_selected,       GEO_LAT,     -180,   180, 0.5, format_geo_lat);
-NumericMenuItem mu3_geo_tz(  "Time z.",   &on_set_geo_tz_selected,         GEO_TZ,      -12,   +12,  0.5, format_float);
-
-BackMenuItem mu_back("<= Back",&on_back_selected, &ms);
-
-//
-void menu_ack(int val) {
+ 
+void menu_ack() {
     disp.clear();
     disp.setCursor(0,1);
-    disp.print(F("Done! "));
-    disp.print(val);
-    delay(1000); // so we can look the result on the LCD
-    // Leave menu
-    State.disp_state = UI_STATE_DEFAULT;
-}
-
-void menu_ack_0() {
-    disp.clear();
-    disp.setCursor(0,1);
-    disp.print(F("Done! "));
+    disp.print(F("Saved! "));
     delay(1000); // so we can look the result on the LCD
     // Leave menu
     State.disp_state = UI_STATE_DEFAULT;
 }
 
 // Menu callback function
+
+void on_back_selected(MenuComponent* p_menu_component) {
+}
 
 void on_open_selected(MenuComponent* p_menu_component) {
     ms.reset();
@@ -263,9 +130,8 @@ void on_set_day_selected(NumericMenuItem* p_menu_component) {
     
     DateTime now = rtc.now();
     now.setday(val);
-    rtc.adjust(now);
-    
-    menu_ack(rtc.now().day());
+    rtc.adjust(now);    
+    menu_ack();
 }
 
 void on_set_month_selected(NumericMenuItem* p_menu_component) {
@@ -273,9 +139,8 @@ void on_set_month_selected(NumericMenuItem* p_menu_component) {
     
     DateTime now = rtc.now();
     now.setmonth(val);
-    rtc.adjust(now);
-    
-    menu_ack(rtc.now().month());
+    rtc.adjust(now);    
+    menu_ack();
 }
 
 void on_set_year_selected(NumericMenuItem* p_menu_component) {
@@ -284,8 +149,7 @@ void on_set_year_selected(NumericMenuItem* p_menu_component) {
     DateTime now = rtc.now();
     now.setyear(val);
     rtc.adjust(now);
-    
-    menu_ack(rtc.now().year());
+    menu_ack();
 }
 
 void on_set_hour_selected(NumericMenuItem* p_menu_component) {
@@ -293,9 +157,8 @@ void on_set_hour_selected(NumericMenuItem* p_menu_component) {
 
     DateTime now = rtc.now();
     now.sethour(val);
-    rtc.adjust(now);
-    
-    menu_ack(rtc.now().hour());
+    rtc.adjust(now);    
+    menu_ack();
 }
 
 void on_set_minute_selected(NumericMenuItem* p_menu_component) {
@@ -303,9 +166,8 @@ void on_set_minute_selected(NumericMenuItem* p_menu_component) {
 
     DateTime now = rtc.now();
     now.setminute(val);
-    rtc.adjust(now);
-    
-    menu_ack(rtc.now().minute());
+    rtc.adjust(now);    
+    menu_ack();
 }
 
 void on_set_open_delay_selected(NumericMenuItem* p_menu_component) {
@@ -313,58 +175,37 @@ void on_set_open_delay_selected(NumericMenuItem* p_menu_component) {
    EEPROM.put(EE_ADDR_OPEN_DEL, val);
    State.cfg_gate_open_delay = val;
    update_sun_times();
-   menu_ack(val);
+   menu_ack();
 }
 void on_set_close_delay_selected(NumericMenuItem* p_menu_component) {
   int val = p_menu_component->get_value();
   EEPROM.put(EE_ADDR_CLOSE_DEL, val);
   State.cfg_gate_close_delay = val;
   update_sun_times();
-  menu_ack(val);
+  menu_ack();
 }
 
 void on_set_geo_long_selected(NumericMenuItem* p_menu_component) {
    float val = p_menu_component->get_value();
    EEPROM.put(EE_ADDR_LONG, val);
    update_sun_times();
-   menu_ack_0();
+   menu_ack();
 }
 void on_set_geo_lat_selected(NumericMenuItem* p_menu_component) {
   float val = p_menu_component->get_value();
   EEPROM.put(EE_ADDR_LAT, val);
   update_sun_times();
-   menu_ack_0();
+  menu_ack();
 }
 
 void on_set_geo_tz_selected(NumericMenuItem* p_menu_component) {
   float val = p_menu_component->get_value();
   EEPROM.put(EE_ADDR_TZ, val);
   update_sun_times();
-  menu_ack_0();
+  menu_ack();
 }
 
-// Setup the menu structure
 
-void menu_setup() {
-  ms.get_root_menu().add_item(&mm_mi1);
-  ms.get_root_menu().add_item(&mm_mi2);
-  ms.get_root_menu().add_menu(&mu1);
-  ms.get_root_menu().add_menu(&mu2);
-  ms.get_root_menu().add_menu(&mu3);
-  mu1.add_item(&mu1_dt_h);
-  mu1.add_item(&mu1_dt_mn);
-  mu1.add_item(&mu1_dt_d);
-  mu1.add_item(&mu1_dt_m);
-  mu1.add_item(&mu1_dt_y);
-  mu1.add_item(&mu_back);
-  mu2.add_item(&mu2_open_del);
-  mu2.add_item(&mu2_close_del);
-  mu2.add_item(&mu_back);
-  mu3.add_item(&mu3_geo_long);
-  mu3.add_item(&mu3_geo_lat);
-  mu3.add_item(&mu3_geo_tz);
-  mu3.add_item(&mu_back);
-}
 
 /* ========================================================================
  * Low power
@@ -706,7 +547,9 @@ void display_info(void) {
  * Check when actions needs to be taken
  */
 
+
 void gate_move(byte dir) {
+  
   
   State.motor_start_time = millis();
   State.idle_time = millis(); // Prevent deep sleep entry
@@ -823,7 +666,6 @@ void update_state(int init_state) {
 
     // Check battery level
     int val = analogRead(VBAT);  // read the input pin
-              // debug value
 
     // With a divider 100K+1M the ration Vadc/Vin = 1/11
     float vadc = (float)val/1024*1.1;

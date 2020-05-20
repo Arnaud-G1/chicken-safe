@@ -12,14 +12,6 @@
 extern U8X8_SSD1306_128X64_NONAME_HW_I2C disp;
 
 void MenuRenderer::render(Menu const& menu) const {
-  /*
-    disp.setCursor(0,2);
-    disp.clearLine(2);
-    disp.print(menu.get_name());
-    disp.clearLine(3);
-    disp.setCursor(0,3);
-    menu.get_current_component()->render(*this);
-  */
 
     int StartIdx = 0;
     int EndIdx = MENU_LINES-1;
