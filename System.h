@@ -2,6 +2,7 @@
  * Global constants
 \* ======================================================================== */
 
+#define DEBUG     false
 
 // IOs
 
@@ -52,9 +53,10 @@
 #define DAY   0
 
 #define EE_ADDR_CFG       0
+#define EE_ADDR_GATE      1
 #define EE_ADDR_OPEN_DEL  2
 #define EE_ADDR_CLOSE_DEL 4
-#define EE_ADDR_GATE      6
+
 #define EE_ADDR_LONG     10 // Float : 4 bytes
 #define EE_ADDR_LAT      14 // Float : 4 bytes
 #define EE_ADDR_TZ       18 // Float : 4 bytes

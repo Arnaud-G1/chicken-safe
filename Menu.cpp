@@ -54,9 +54,9 @@ NumericMenuItem mu2_open_del( "Open delay ",     &on_set_open_delay_selected,   
 NumericMenuItem mu2_close_del("Close delay",   &on_set_close_delay_selected,  -30,    -120,   120, 10, format_int);
 
 Menu mu3("5.Position"); // Position
-NumericMenuItem mu3_geo_long("Long.  ",    &on_set_geo_long_selected,    GEO_LONG,    -180,   180, 0.5, format_geo_long);
-NumericMenuItem mu3_geo_lat( "Lat.   ",   &on_set_geo_lat_selected,       GEO_LAT,     -180,   180, 0.5, format_geo_lat);
-NumericMenuItem mu3_geo_tz(  "Time z.",   &on_set_geo_tz_selected,         GEO_TZ,      -12,   +12,  0.5, format_float);
+NumericMenuItem mu3_geo_long("Long.  ",   &on_set_geo_long_selected,    GEO_LONG,    -180,   180, 0.5, format_geo_long);
+NumericMenuItem mu3_geo_lat( "Lat.   ",   &on_set_geo_lat_selected,     GEO_LAT,     -180,   180, 0.5, format_geo_lat);
+NumericMenuItem mu3_geo_tz(  "Time z.",   &on_set_geo_tz_selected,      GEO_TZ,      -12,   +12,  0.5, format_float);
 
 BackMenuItem mu_back("<= Back",&on_back_selected, &ms);
 

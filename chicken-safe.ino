@@ -5,7 +5,8 @@
 #include <Wire.h> 
 
 // Low power
-//https://github.com/rocketscream/Low-Power/
+// https://github.com/rocketscream/Low-Power/
+// https://thewanderingengineer.com/2014/08/11/arduino-pin-change-interrupts/
 #include <LowPower.h>
 
 // OLED
@@ -296,6 +297,12 @@ void config_setup() {
         State.cfg_gate_close_delay = -30;
         EEPROM.put(EE_ADDR_CLOSE_DEL, State.cfg_gate_close_delay);
   }
+
+  EEPROM.get(EE_ADDR_GATE, State.gate);
+  if (State.gate == 0xFF) {
+        State.gate = GATE_CLOSE;
+        EEPROM.put(EE_ADDR_GATE, State.gate);
+  }
   // Initialize GEO eeprom (float values)
   float fval; 
   EEPROM.get(EE_ADDR_LONG, fval);
@@ -318,7 +325,7 @@ void config_setup() {
 void setup()
 {
 
-  Serial.begin(9600);
+  if (DEBUG) Serial.begin(9600);
   
   Wire.begin();
 
@@ -364,7 +371,7 @@ void setup()
   // Low power
   low_power_setup();
 
-  Serial.println(F("Setup done!")); 
+  if (DEBUG) Serial.println(F("Setup done!")); 
 }
 
 /* ========================================================================
@@ -558,10 +565,6 @@ void gate_move(byte dir) {
   digitalWrite(MOTOR_B,dir);
   digitalWrite(MOTOR_EN,1);
   State.motor_state = dir;
-
-  Serial.print(F("Gate move"));
-  Serial.println(dir);
-  
 }
 
 
@@ -570,7 +573,6 @@ void gate_stop() {
   State.disp_state = UI_STATE_DEFAULT;
   State.motor_state = MOTOR_OFF;
   // IO control
-  Serial.println(F("Gate stop"));
   digitalWrite(MOTOR_A,0);
   digitalWrite(MOTOR_B,0);
   digitalWrite(MOTOR_EN,0); // Saves power
@@ -582,9 +584,9 @@ bool is_night() {
 
   int time_min = State.currentTime.hour() * 60 + State.currentTime.minute(); // Time expressed in minutes
 
-  if (time_min < (State.open_time + State.cfg_gate_close_delay)) 
+  if (time_min < State.open_time) 
     return 1; // Night, before open_time
-  if (time_min < (State.close_time + State.cfg_gate_open_delay)) 
+  if (time_min < State.close_time) 
     return 0; // Day
   return 1; // Night, after close_time
 }
@@ -595,10 +597,14 @@ void action_handler() {
     // Gate open
     if ((State.motor_state != MOTOR_OFF) && ((millis() -  State.motor_start_time) > MOTOR_TIMEOUT*1000)) {
        // Gate action completed
-       if (State.motor_state == MOTOR_OPEN) 
+       if (State.motor_state == MOTOR_OPEN) {
           State.gate = GATE_OPEN;
-       if (State.motor_state == MOTOR_CLOSE) 
+          EEPROM.put(EE_ADDR_GATE, State.gate);
+       }
+       if (State.motor_state == MOTOR_CLOSE) {
           State.gate = GATE_CLOSE;
+          EEPROM.put(EE_ADDR_GATE, State.gate);
+       }
        gate_stop();
     }
 
@@ -671,6 +677,8 @@ void update_state(int init_state) {
     float vadc = (float)val/1024*1.1;
     State.vbat = vadc * VBAT_DIVIDER; 
 }
+
+
 
 
 /* ========================================================================

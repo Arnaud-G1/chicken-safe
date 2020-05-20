@@ -15,32 +15,33 @@ void MenuRenderer::render(Menu const& menu) const {
 
     int StartIdx = 0;
     int EndIdx = MENU_LINES-1;
-    if (menu.get_num_components() < MENU_LINES) {
-      EndIdx = menu.get_num_components();
+    if (menu.get_num_components() <= MENU_LINES) {
+      EndIdx = menu.get_num_components()-1;
     } else {
       // More menu than lines
       if (menu.get_current_component_num() > menu.get_previous_component_num()) {
         // Navigate down  
         EndIdx = max(menu.get_current_component_num(),MENU_LINES-1);
-        StartIdx = EndIdx - (MENU_LINES-1);
+        StartIdx = EndIdx - MENU_LINES + 1;
       } else {
         // Navigate up
-        EndIdx = max(menu.get_current_component_num(),MENU_LINES-1);
-        StartIdx = EndIdx - (MENU_LINES-1);
+        StartIdx = min(menu.get_current_component_num(),menu.get_num_components()-MENU_LINES);
+        EndIdx = StartIdx + MENU_LINES - 1;
       }
-
     }
     
-    int disp_idx = MENU_START_LINE;
-    for (int i = StartIdx; i <= EndIdx; i++) {
-      MenuComponent const* cp_m_comp = menu.get_menu_component(i);
-      disp.clearLine(disp_idx);
-      disp.setCursor(1,disp_idx);
-      cp_m_comp->render(*this);
-      if (cp_m_comp->is_current()) {
-        disp.drawGlyph(0,disp_idx,'>');
+    for (int i = StartIdx, line = MENU_START_LINE; line < MENU_LINES+MENU_START_LINE; i++, line++) {
+      if (i <= EndIdx) {
+        MenuComponent const* cp_m_comp = menu.get_menu_component(i);
+        disp.clearLine(line);
+        disp.setCursor(1,line);
+        cp_m_comp->render(*this);
+        if (cp_m_comp->is_current()) {
+          disp.drawGlyph(0,line,'>');
+        }
+      } else {
+        disp.clearLine(line);
       }
-      disp_idx++;
     }
 }
 
