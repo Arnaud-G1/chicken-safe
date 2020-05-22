@@ -17,10 +17,11 @@ const String format_geo_lat(const float value);
 
 // Forward declarations
 
-void on_open_selected(MenuComponent* p_menu_component);
-void on_close_selected(MenuComponent* p_menu_component);
+void on_move_selected(MenuComponent* p_menu_component);
 
 void on_back_selected(MenuComponent* p_menu_component);
+
+void on_door_state_selected(MenuComponent* p_menu_component);
 
 void on_set_day_selected(NumericMenuItem* p_menu_component);
 void on_set_month_selected(NumericMenuItem* p_menu_component);
@@ -54,5 +55,10 @@ extern NumericMenuItem mu2_close_del;
 extern NumericMenuItem mu3_geo_long;
 extern NumericMenuItem mu3_geo_lat;
 extern NumericMenuItem mu3_geo_tz;
+
+// Declare menu items as extern to allow setting name when menu loads
+
+extern MenuItem mm_move_door; // Name is set dynamically
+extern MenuItem mu2_set_door_state;
 
 #endif

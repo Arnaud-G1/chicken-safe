@@ -2,7 +2,7 @@
  * Global constants
 \* ======================================================================== */
 
-#define DEBUG     false
+#define DEBUG     true
 
 // IOs
 
@@ -37,12 +37,13 @@
 
 // State definitions
 
-#define MOTOR_OFF   0
+#define MOTOR_OFF   2
 #define MOTOR_OPEN  1
-#define MOTOR_CLOSE 2
+#define MOTOR_CLOSE 0
 
+#define GATE_CLOSE 0
 #define GATE_OPEN  1
-#define GATE_CLOSE 2
+
 
 #define UI_STATE_DEFAULT 0
 #define UI_STATE_MENU    1
@@ -52,11 +53,26 @@
 #define NIGHT 1
 #define DAY   0
 
+/*
+ * EEPROM Addresses
+ */
+
 #define EE_ADDR_CFG       0
 #define EE_ADDR_GATE      1
-#define EE_ADDR_OPEN_DEL  2
-#define EE_ADDR_CLOSE_DEL 4
+#define EE_ADDR_OPEN_DEL  4 // Float : 4 bytes
+#define EE_ADDR_CLOSE_DEL 8 // Float : 4 bytes
 
-#define EE_ADDR_LONG     10 // Float : 4 bytes
-#define EE_ADDR_LAT      14 // Float : 4 bytes
-#define EE_ADDR_TZ       18 // Float : 4 bytes
+#define EE_ADDR_LONG     20 // Float : 4 bytes
+#define EE_ADDR_LAT      24 // Float : 4 bytes
+#define EE_ADDR_TZ       28 // Float : 4 bytes
+
+
+/*
+ * Type definitions
+ */
+
+typedef struct {
+  unsigned long debounce_time;
+  byte id;
+  byte state;  
+} btn_t;

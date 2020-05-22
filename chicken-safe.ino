@@ -11,7 +11,6 @@
 
 // OLED
 // https://github.com/olikraus/u8g2
-//#include "U8glib.h"
 #include <U8g2lib.h>
 
 // RTC
@@ -30,20 +29,8 @@
 // EEprom to store settings
 #include <EEPROM.h>
 
-// Store strings in progmem
-#include <avr/pgmspace.h>
 
 #include "System.h"
-/*
- * Type definitions
- */
-
-typedef struct {
-  unsigned long debounce_time;
-  byte id;
-  byte state;  
-} btn_t;
-
 
 typedef struct {
   byte disp_state;
@@ -67,8 +54,6 @@ typedef struct {
   unsigned long motor_start_time;
   // Door
   byte gate;
-  int cfg_gate_open_delay;
-  int cfg_gate_close_delay;
   // Battery
   float vbat;
 } state_t;
@@ -99,6 +84,7 @@ void menu_ack() {
     disp.print(F("Saved! "));
     delay(1000); // so we can look the result on the LCD
     // Leave menu
+    ms.reset();
     State.disp_state = UI_STATE_DEFAULT;
 }
 
@@ -107,20 +93,16 @@ void menu_ack() {
 void on_back_selected(MenuComponent* p_menu_component) {
 }
 
-void on_open_selected(MenuComponent* p_menu_component) {
+void on_move_selected(MenuComponent* p_menu_component) {
     ms.reset();
     disp.clear();
-    disp.draw1x2String(0, 2, "Opening door");  
+    if (State.gate == GATE_CLOSE) {
+      disp.draw1x2String(0, 2, "Opening door");    
+    } else {
+      disp.draw1x2String(0, 2, "Closing door");  
+    }
+    gate_move(State.gate ^ 0x1); 
     State.disp_state = UI_STATE_ACTION;
-    gate_move(GATE_OPEN);   
-}
-
-void on_close_selected(MenuComponent* p_menu_component) {
-    ms.reset();
-    disp.clear();
-    disp.draw1x2String(0, 2, "Closing door");  
-    State.disp_state = UI_STATE_ACTION;
-    gate_move(GATE_CLOSE);
 }
 
 
@@ -172,36 +154,31 @@ void on_set_minute_selected(NumericMenuItem* p_menu_component) {
 }
 
 void on_set_open_delay_selected(NumericMenuItem* p_menu_component) {
-   int val = p_menu_component->get_value();
-   EEPROM.put(EE_ADDR_OPEN_DEL, val);
-   State.cfg_gate_open_delay = val;
    update_sun_times();
    menu_ack();
 }
 void on_set_close_delay_selected(NumericMenuItem* p_menu_component) {
-  int val = p_menu_component->get_value();
-  EEPROM.put(EE_ADDR_CLOSE_DEL, val);
-  State.cfg_gate_close_delay = val;
   update_sun_times();
   menu_ack();
 }
 
+void on_door_state_selected(MenuComponent* p_menu_component) {
+    State.gate ^=  1;
+    EEPROM.put(EE_ADDR_GATE, State.gate);
+}
+
+/* Geo menu */
+
 void on_set_geo_long_selected(NumericMenuItem* p_menu_component) {
-   float val = p_menu_component->get_value();
-   EEPROM.put(EE_ADDR_LONG, val);
    update_sun_times();
    menu_ack();
 }
 void on_set_geo_lat_selected(NumericMenuItem* p_menu_component) {
-  float val = p_menu_component->get_value();
-  EEPROM.put(EE_ADDR_LAT, val);
   update_sun_times();
   menu_ack();
 }
 
 void on_set_geo_tz_selected(NumericMenuItem* p_menu_component) {
-  float val = p_menu_component->get_value();
-  EEPROM.put(EE_ADDR_TZ, val);
   update_sun_times();
   menu_ack();
 }
@@ -287,38 +264,11 @@ void motor_setup() {
 
 void config_setup() {
   // Init eeprom variables
-  EEPROM.get(EE_ADDR_OPEN_DEL, State.cfg_gate_open_delay);
-  if (State.cfg_gate_open_delay == -1) {
-        State.cfg_gate_open_delay = 60;
-        EEPROM.put(EE_ADDR_OPEN_DEL, State.cfg_gate_open_delay);
-  }
-  EEPROM.get(EE_ADDR_CLOSE_DEL, State.cfg_gate_close_delay);
-  if (State.cfg_gate_close_delay == -1) {
-        State.cfg_gate_close_delay = -30;
-        EEPROM.put(EE_ADDR_CLOSE_DEL, State.cfg_gate_close_delay);
-  }
 
   EEPROM.get(EE_ADDR_GATE, State.gate);
   if (State.gate == 0xFF) {
         State.gate = GATE_CLOSE;
         EEPROM.put(EE_ADDR_GATE, State.gate);
-  }
-  // Initialize GEO eeprom (float values)
-  float fval; 
-  EEPROM.get(EE_ADDR_LONG, fval);
-  if (fval != fval) {
-       fval = GEO_LONG;
-       EEPROM.put(EE_ADDR_LONG, fval);
-  }
-  EEPROM.get(EE_ADDR_LAT, fval);
-  if (fval != fval) {
-       fval = GEO_LAT;
-       EEPROM.put(EE_ADDR_LAT, fval);
-  }
-  EEPROM.get(EE_ADDR_TZ, fval);
-  if (fval != fval) {
-       fval = GEO_TZ;
-       EEPROM.put(EE_ADDR_TZ, fval);
   }
 }
 
@@ -388,17 +338,15 @@ void menu_update() {
   mu1_dt_y.set_value(State.currentTime.year());
   mu1_dt_h.set_value(State.currentTime.hour());
   mu1_dt_mn.set_value(State.currentTime.minute());   
-  mu2_open_del.set_value(State.cfg_gate_open_delay); 
-  mu2_close_del.set_value(State.cfg_gate_close_delay); 
 
-  // Geo values are read directly from EEPROM
-  float val;
-  EEPROM.get(EE_ADDR_LONG, val);
-  mu3_geo_long.set_value(val); 
-  EEPROM.get(EE_ADDR_LAT, val);
-  mu3_geo_lat.set_value(val); 
-  EEPROM.get(EE_ADDR_TZ, val);
-  mu3_geo_tz.set_value(val); 
+  if (State.gate == GATE_OPEN) {
+    mm_move_door.set_name("1.Close door");
+    mu2_set_door_state.set_name("Set as closed");
+  }
+  else {
+    mm_move_door.set_name("1.Open door");
+    mu2_set_door_state.set_name("Set as open");
+  }
 }
 
 
@@ -555,16 +503,15 @@ void display_info(void) {
  */
 
 
-void gate_move(byte dir) {
-  
-  
+void gate_move(bool dir) {
+  Serial.print(dir);
   State.motor_start_time = millis();
   State.idle_time = millis(); // Prevent deep sleep entry
   // IO control
   digitalWrite(MOTOR_A,!dir);
   digitalWrite(MOTOR_B,dir);
   digitalWrite(MOTOR_EN,1);
-  State.motor_state = dir;
+  State.motor_state = dir ? MOTOR_OPEN : MOTOR_CLOSE;
 }
 
 
@@ -633,18 +580,17 @@ void update_sun_times() {
 
     const int DAY_IN_MINUTES = 24*60;
     
-    float geo_long;
-    float geo_lat;
-    float geo_tz;
-  
-    EEPROM.get(EE_ADDR_LONG, geo_long);
-    EEPROM.get(EE_ADDR_LAT, geo_lat);
-    EEPROM.get(EE_ADDR_TZ, geo_tz);
+    float geo_long = mu3_geo_long.get_value();
+    float geo_lat = mu3_geo_lat.get_value();
+    float geo_tz = mu3_geo_tz.get_value();
+
+    uint16_t open_delay = mu2_open_del.get_value();
+    uint16_t close_delay = mu2_close_del.get_value();
 
     Dusk2Dawn localTimeData(geo_lat,geo_long, geo_tz);
 
-    State.open_time     = (localTimeData.sunrise(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false) +  State.cfg_gate_open_delay) % DAY_IN_MINUTES;
-    State.close_time    = (localTimeData.sunset(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false)  + State.cfg_gate_close_delay) % DAY_IN_MINUTES;
+    State.open_time     = (localTimeData.sunrise(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false) +  open_delay) % DAY_IN_MINUTES;
+    State.close_time    = (localTimeData.sunset(State.currentTime.year(), State.currentTime.month(), State.currentTime.day(), false)  + close_delay) % DAY_IN_MINUTES;
 
     State.last_duskdawn_day = State.currentTime.day();
 }
@@ -676,6 +622,9 @@ void update_state(int init_state) {
     // With a divider 100K+1M the ration Vadc/Vin = 1/11
     float vadc = (float)val/1024*1.1;
     State.vbat = vadc * VBAT_DIVIDER; 
+
+    if (DEBUG) Serial.println(String("")+is_night()+" " + State.day_state + " " + State.gate );
+
 }
 
 
